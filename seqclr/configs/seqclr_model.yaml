@@ -1,0 +1,57 @@
+global: 
+  name: seqclr-pretrain-vision-model
+  phase: train
+  stage: pretrain-speech
+  workdir: workdir
+  seed: ~
+
+training:
+  epochs: 201
+  train_bs: 16
+  eval_bs: 16
+  save_iters: 1000
+  eval_iters: 1000
+  logg_iters: 1000
+  warmup_steps: 1000
+  save_total_limit: 3
+
+optimizer:
+  wd: 0.001
+  lr: 0.0003
+  lr_scheduler_type: cosine
+  
+wandb:
+  report_to: wandb
+  project_name: seqclr # seqclr, seqclr-UA
+  run_name: seqclr_window_dtw
+
+model:
+  name: 'semimtr.modules.model_seqclr_vision.SeqCLRModel'
+  speech_backbone: base # base, small, medium, large
+  backbone_freeze: False
+  outdir: 'checkpoints/checkpoint-character'
+  dataset: {
+    train_mode: train, 
+    test_mode: test,
+  }
+  proj: {
+    layer: backbone_feature,  # 'feature'|'backbone_feature'
+    scheme: bilstm,  # null|'bilstm'|'linear_per_column'|'attn_linear_per_column'
+  }
+  instance_mapping: {
+    frame_to_instance: True, # Ture|False
+    fixed: instances,  # instances|frames
+    w: 150, # It works when frame_to_instance is False.
+  }
+
+decoder:
+  seqclr_ckp: 'checkpoints/checkpoint-character/seqclr-200.pt'
+  seqclr_freeze: False # True|False
+  pretrained_ckp: null
+  outdir: 'checkpoints/run-character'
+  dataset: 
+    type: ua # ua
+    mode_ua: {
+      train_mode: ['train'], 
+      test_mode: ['test_1000', 'healthy', 'VL', 'L', 'M', 'H'],
+    }
