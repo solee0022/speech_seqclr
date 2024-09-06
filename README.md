@@ -3,7 +3,7 @@
 
 ### seqclr-encoder fine-tune
 ```
-$ sbatch run_seqclr.sh
+>> $ sbatch run_seqclr.sh
 
 N_GPU=4
 
@@ -20,7 +20,7 @@ $SCRIPT_PATH/run_seqclr.py \
 
 ### ASR fine-tune
 ```
-$ sbatch run_asr.sh
+>> $ sbatch run_asr.sh
 
 N_GPU=4
 
