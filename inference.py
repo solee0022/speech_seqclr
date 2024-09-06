@@ -105,6 +105,6 @@ def main(
         f = open(f'../dataset/preds/preds_{method}/test_{speaker}_{asr_model}.jsonl', 'w')
         inference(processor, model, f, speaker)
 
-main(method = "seqclr",
-    asr_model = "base",
-    )
+
+if __name__ == "__main__":
+    fire.Fire(main)
