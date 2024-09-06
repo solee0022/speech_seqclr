@@ -23,7 +23,7 @@ class Config(object):
                     if k == 'phase':
                         assert v in ['train', 'test']
                     if k == 'stage':
-                        assert v in ['pretrain-speech', 'train-decoder', 'pretrain-vision']
+                        assert v in ['en_SEQCLR', 'en_SEQCLR_HARD', 'FINETUNE', 'de_SEQCLR', 'de_SEQCLR_HARD']
                     self.__setattr__(f'{prefix}{k}', v)
 
         assert os.path.exists(config_path), '%s does not exists!' % config_path

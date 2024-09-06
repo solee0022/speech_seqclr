@@ -1,48 +1,27 @@
+import os
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
-import torch.distributed as dist
-import torch.multiprocessing as mp
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.nn import CrossEntropyLoss
 
-import os
 import argparse
-from tqdm import trange
 import wandb
-import multiprocessing
-from functools import partial
-from typing_extensions import Literal
-import librosa
+
 import logging
 from typing import Any, Dict, List, Optional, Union
 
 from seqclr.dataset.ua import UASpeechDataset
-from seqclr.dataset.torgo import TORGODataset
 from seqclr.modules.model_seqclr import SeqCLRModel
 
-import editdistance
-from seqclr.modules.normalizers import EnglishTextNormalizer
-
-import whisper
-from transformers import (WhisperConfig, WhisperProcessor, WhisperModel, WhisperForConditionalGeneration
-                          ,get_constant_schedule_with_warmup, EarlyStoppingCallback)
-from transformers import (TrainingArguments, Trainer, Seq2SeqTrainingArguments, Seq2SeqTrainer) # Trainer 뭐 쓸지,,
-from transformers import AutoModelForSpeechSeq2Seq, AutoConfig, set_seed
-from transformers.trainer_utils import get_last_checkpoint, is_main_process
+from transformers import (WhisperConfig, WhisperProcessor, WhisperForConditionalGeneration, EarlyStoppingCallback, set_seed)
+from transformers import (Seq2SeqTrainingArguments, Seq2SeqTrainer)
+from transformers.trainer_utils import get_last_checkpoint
 from seqclr.modules.utils import Config
-from torch.nn import CrossEntropyLoss
-from transformers import AutoTokenizer
 import evaluate
-from dataclasses import dataclass, field
-from statistics import mean 
-from torch.utils.data import DataLoader
-import datasets
-from datasets import DatasetDict
+from dataclasses import dataclass
+from safetensors import safe_open
 
-
-
+from peft import prepare_model_for_kbit_training
+from peft import LoraConfig, PeftModel, LoraModel, LoraConfig, get_peft_model
 
 logger = logging.getLogger(__name__)
 parser = argparse.ArgumentParser()
@@ -122,7 +101,7 @@ def main():
         # generation_num_beams=5,
         data_seed=1234,
         do_train=True,
-        metric_for_best_model="eval_test_loss",  #torgo: M03_wer, UA: M_wer
+        metric_for_best_model="eval_wer", 
         load_best_model_at_end=True,
         report_to=[config.wandb_report_to],
         run_name=config.wandb_run_name,
@@ -140,27 +119,32 @@ def main():
     else:
         logger.info("*** Use Contrastive Encoder ***")
         # 1.2. load state_dict of seqclr(encoder)
-        seqclr_state_dict = torch.load(config.decoder_seqclr_ckp, map_location=torch.device('cpu')).module.state_dict() #['model_state_dict']
+        seqclr_state_dict = safe_open(f'{config.decoder_seqclr_ckp}/model.safetensors', framework='pt')  #['model_state_dict']
 
         # 1.3. seq2seq state_dict
         current_state_dict = model.state_dict()
 
         # 1.4. apply loaded state_dict to current_state_dict(correspond to seqclr)
-        for key, value in seqclr_state_dict.items():
+        for key in seqclr_state_dict.keys():
             if key not in current_state_dict.keys():
                 pass
             else:
-                current_state_dict[key] = value
+                current_state_dict[key] = seqclr_state_dict.get_tensor(key)
 
         # 1.5. apply to current model
         model.load_state_dict(current_state_dict)
-
+    
     # 1.6. freeze model
     if config.decoder_seqclr_freeze:
         model.freeze_encoder()
         model.model.encoder.gradient_checkpointing = False
 
-    print(model)
+    if config.model_speech_backbone == 'large-v3':
+        model = prepare_model_for_kbit_training(model)
+        lora_config = LoraConfig(r=32, lora_alpha=64, target_modules=["q_proj", "v_proj"], lora_dropout=0.05, bias="none")
+
+        model = get_peft_model(model, lora_config)
+        model.print_trainable_parameters()
     
     # 2. Detecting last checkpoint and eventually continue from last checkpoint
     last_checkpoint = None
@@ -191,39 +175,20 @@ def main():
 
     if config.decoder_dataset_type == 'ua':
         # trainset
-        ds_train = UASpeechDataset(config.decoder_dataset_mode_ua_train_mode[0])
+        ds_train = UASpeechDataset(config.decoder_dataset_mode_ua_train_mode[0], config.model_speech_backbone)
         # evalset
         # run separate evaluations on each dataset
         if len(config.decoder_dataset_mode_ua_test_mode)>1:
             ds_eval = {}
             for eval_mode in config.decoder_dataset_mode_ua_test_mode:
                 key = eval_mode
-                value = UASpeechDataset(eval_mode)
+                value = UASpeechDataset(eval_mode, config.model_speech_backbone)
                 ds_eval[key] = value
         else:
-            ds_eval = UASpeechDataset(config.decoder_dataset_mode_ua_test_mode[0])
-
-    elif config.decoder_dataset_type == 'torgo':
-            # trainset
-        ds_train = TORGODataset(config.decoder_dataset_mode_torgo_train_mode[0])
-        # evalset
-        # run separate evaluations on each dataset
-        if len(config.decoder_dataset_mode_ua_test_mode)>1:
-            ds_eval = {}
-            for eval_mode in config.decoder_dataset_mode_torgo_test_mode:
-                key = eval_mode
-                value = TORGODataset(eval_mode)
-                ds_eval[key] = value
-        else:
-            ds_eval = TORGODataset(config.decoder_dataset_mode_torgo_test_mode[0])
+            ds_eval = UASpeechDataset(config.decoder_dataset_mode_ua_test_mode[0], config.model_speech_backbone)
 
 
     # 4. Load Metric
-    #metric = evaluate.load("wer")
-    normalizer = EnglishTextNormalizer()
-    def calculate_wer(pre, ref):
-        return editdistance.eval(pre, ref) / len(ref)
-    
     metric = evaluate.load("wer", experiment_id='loss') 
     
     def compute_metrics(pred):
@@ -234,19 +199,8 @@ def main():
         pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
         # we do not want to group tokens when computing the metrics
         label_str = tokenizer.batch_decode(pred.label_ids, skip_special_tokens=True)
-        
-        wer = 0
-        id = 0
-        for i in range(len(pred_str)):
-            pred_text = normalizer(pred_str[i])
-            label_text = normalizer(label_str[i])
-            
-            cur_wer = calculate_wer(pred_text.split(), label_text.split())
-            id += 1
-            wer += cur_wer
-        wer /= id
 
-        # wer = metric.compute(predictions=pred_str, references=label_str)
+        wer = metric.compute(predictions=pred_str, references=label_str)
 
         return {"wer": wer}
 

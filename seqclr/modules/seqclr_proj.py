@@ -11,9 +11,13 @@ class SeqCLRProj(Model):
     def __init__(self, config):
         super().__init__()
         self.model_instance_mapping_frame_to_instance = config.model_instance_mapping_frame_to_instance
-        projection_input_size = 512 # emb_dim of whisper: 512
-        projection_hidden_size = 512
-        projection_output_size = 512
+        if config.model_speech_backbone == 'large-v3':
+            self.emb_dim = 1280
+        else:
+            self.emb_dim = 512
+        projection_input_size = self.emb_dim # emb_dim of whisper: 512
+        projection_hidden_size = self.emb_dim
+        projection_output_size = self.emb_dim
 
         # 3/Projection head
         if config.model_proj_scheme is None:

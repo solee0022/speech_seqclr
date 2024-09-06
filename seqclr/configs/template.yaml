@@ -1,7 +1,7 @@
 global:
   name: exp
   phase: train
-  stage: pretrain-speech
+  stage: FINETUNE
   workdir: workdir
   seed: ~
   debug: False

@@ -1,18 +1,18 @@
 global: 
-  name: seqclr-pretrain-vision-model
+  name: seqclr
   phase: train
-  stage: pretrain-speech
+  stage: en_SEQCLR
   workdir: workdir
   seed: ~
 
 training:
-  epochs: 201
-  train_bs: 16
-  eval_bs: 16
-  save_iters: 1000
-  eval_iters: 1000
-  logg_iters: 1000
-  warmup_steps: 1000
+  epochs: 100
+  train_bs: 32
+  eval_bs: 8
+  save_iters: 500
+  eval_iters: 500
+  logg_iters: 500
+  warmup_steps: 10
   save_total_limit: 3
 
 optimizer:
@@ -22,14 +22,14 @@ optimizer:
   
 wandb:
   report_to: wandb
-  project_name: seqclr # seqclr, seqclr-UA
-  run_name: seqclr_window_dtw
+  project_name: seqclr-UA # seqclr, seqclr-UA
+  run_name: de_SEQCLR_large-v3
 
 model:
   name: 'semimtr.modules.model_seqclr_vision.SeqCLRModel'
-  speech_backbone: base # base, small, medium, large
+  speech_backbone: large-v3 # base, small, medium, large-v3
   backbone_freeze: False
-  outdir: 'checkpoints/checkpoint-character'
+  outdir: '../checkpoints/en_SEQCLR_large-v3'
   dataset: {
     train_mode: train, 
     test_mode: test,
@@ -45,13 +45,13 @@ model:
   }
 
 decoder:
-  seqclr_ckp: 'checkpoints/checkpoint-character/seqclr-200.pt'
-  seqclr_freeze: False # True|False
+  seqclr_ckp: '../checkpoints/en_SEQCLR_large-v3'
+  seqclr_freeze:  True # True|False
   pretrained_ckp: null
-  outdir: 'checkpoints/run-character'
+  outdir: '../checkpoints/de_SEQCLR_large-v3'
   dataset: 
     type: ua # ua
     mode_ua: {
       train_mode: ['train'], 
-      test_mode: ['test_1000', 'healthy', 'VL', 'L', 'M', 'H'],
+      test_mode: ['test'],
     }

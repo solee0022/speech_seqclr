@@ -34,182 +34,63 @@ def variant_window(use_wp):
     return x1_window_sizes, x2_window_sizes
             
 
-def variant_average_pooling(embeddings, window_sizes, except_calculation):
+def variant_average_pooling(embeddings, window_sizes):
     """
     inputs: 
-        embeddings = torch.Size([1, trimed_length, 512])
+        embeddings = torch.Size([1, trimed_length, emb_dim])
         window_sizes = list []
         
     outputs:
-        final_output = torch.Size([1, instance_len, 512])
+        final_output = torch.Size([1, instance_len, emb_dim])
     """
     # List to store pooled results
     pooled_outputs = []
+    emb_dim = int(embeddings.shape[2])
 
     # Perform average pooling over the specified window sizes
     for idx in range(len(window_sizes)):
-        if idx not in except_calculation:
-            # Compute the number of segments to pool
-            if idx == 0:
-                segments = embeddings[:, :window_sizes[idx], :]
-            else:
-                segments = embeddings[:, sum(window_sizes[:idx]):sum(window_sizes[:idx])+window_sizes[idx], :]
-            
-            if segments.shape[1] == 0:
-                pooled_data = torch.zeros(1, 512)
-            else:
-                # Average Pooling, (1, seq_len, 512) -> (1, 1, 512)
-                pool = nn.AdaptiveAvgPool2d((1, 512))
-                # Apply the pooling operation
-                pooled_data = pool(segments).squeeze(0) # (1, 512)
-                
-            # Store the result
-            pooled_outputs.append(pooled_data)
+        # Compute the number of segments to pool
+        if idx == 0:
+            segments = embeddings[:, :window_sizes[idx], :]
+        else:
+            segments = embeddings[:, sum(window_sizes[:idx]):sum(window_sizes[:idx])+window_sizes[idx], :]
+        
+        if segments.shape[1] == 0:
+            pooled_data = torch.zeros(1, emb_dim)
+        else:
+            # Average Pooling, (1, seq_len, emb_dim) -> (1, 1, emb_dim)
+            pool = nn.AdaptiveAvgPool2d((1, emb_dim))
+            # Apply the pooling operation
+            pooled_data = pool(segments).squeeze(0) # (1, emb_dim)
+              
+        # Store the result
+        pooled_outputs.append(pooled_data)
             
         length = len(pooled_outputs)
-        b = torch.Tensor(length, 512) # (instance_len, 512)
-        if len(pooled_outputs) != 0: # 이 case 왜 생기는지 모르겠음.
-            new_pooled_outputs = torch.cat(pooled_outputs, out=b).unsqueeze(0)  
-        else:
-            new_pooled_outputs = None
-    return new_pooled_outputs # torch.Size([1,instance_len,512])
+        b = torch.Tensor(length, emb_dim) # (instance_len, emb_dim)
+        new_pooled_outputs = torch.cat(pooled_outputs, out=b).unsqueeze(0)  
         
-# dtw        
-def window_mapping_and_dtw(x1_emb, x2_emb, wp, x1_syllable, x2_syllable):
-    """
-    inputs: 
-        x1_emb = torch.Size([1,1500,512]) = 30sec
-        x2_emb = torch.Size([1,1500,512])
-    outputs:
-        mapped_x1_emb = torch.Size([1,instance_len,512])
-        mapped_x2_emb = torch.Size([1,instance_len,512])
-    """
-    zeros = torch.zeros(1, 1, 512)
-    
-    if len(x1_syllable.shape) == 1:
-        x1_start, x1_end = int(x1_syllable[0]), int(x1_syllable[1])
-    else:
-        x1_start, x1_end = int(x1_syllable[0][0]), int(x1_syllable[-1][1])
-
-    if x1_start > 1500:
-        return zeros, zeros
-    elif x1_end > 1500:
-        x1_end = 1499
+    return new_pooled_outputs # torch.Size([1,instance_len,emb_dim])
         
-    # x1: start - end
-    wp_1500 = [[wp_t[0]//2, wp_t[1]//2] for wp_t in wp]
-    x1_idx = [i[0] for i in wp_1500]
-
-    START = x1_idx.index(x1_start)  # start frame_t
-    END = x1_idx.index(x1_end) # end frame_t
-    use_wp = wp_1500[START:END+1]
-    
-    # trim embeddings
-    x1_emb = x1_emb[:, x1_start:x1_end+1, :] # [1, frames, dim]
-    x2_emb = x2_emb[:, use_wp[0][1]:use_wp[-1][1], :]
-
-    # Define the pooling window sizes
-    x1_window_sizes, x2_window_sizes = variant_window(use_wp)
-    
-    # What if paired x2 window_size = 0?
-    except_calculation_x1 = [i for i, value in enumerate(x1_window_sizes) if value == 0]
-    except_calculation_x2 = [i for i, value in enumerate(x2_window_sizes) if value == 0]
-    except_calculation = list(set().union(except_calculation_x1,except_calculation_x2))
-    
-    if len(except_calculation) == len(x1_window_sizes):
-        return zeros, zeros
-    else:
-        # print(f"x1_window_sizes: {x1_window_sizes}")
-        # print(f"x2_window_sizes: {x2_window_sizes}")
-        # print(f"except_calculation: {except_calculation}")
-        mapped_x1_emb = variant_average_pooling(x1_emb, x1_window_sizes, except_calculation)
-        mapped_x2_emb = variant_average_pooling(x2_emb, x2_window_sizes, except_calculation)
-        if (mapped_x1_emb != None) and (mapped_x2_emb != None):
-            return mapped_x1_emb, mapped_x2_emb
-        else:
-            return zeros, zeros
-        
-# syllable
-def window_mapping_and_syllable(x1_emb, x2_emb, x1_syllable, x2_syllable):
-    """
-    inputs: 
-        x1_emb = torch.Size([1,1500,512]) = 30sec
-        x2_emb = torch.Size([1,1500,512])
-    outputs:
-        mapped_x1_emb = torch.Size([1,instance_len,512])
-        mapped_x2_emb = torch.Size([1,instance_len,512])
-    """
-    if len(x1_syllable.shape) == 1:
-        # trim embeddings
-        x1_emb = x1_emb[:, int(x1_syllable[0]):int(x1_syllable[1]), :] # [1, frames, dim]
-        x2_emb = x2_emb[:, int(x2_syllable[0]):int(x2_syllable[1]), :]
-        
-        # Define the pooling window sizes
-        x1_window_sizes = [int(x1_syllable[1])- int(x1_syllable[0])]
-        x2_window_sizes = [int(x2_syllable[1]) - int(x2_syllable[0])]
-    else:
-        x1_emb = x1_emb[:, int(x1_syllable[0][0]):int(x1_syllable[-1][1]), :]
-        x2_emb = x2_emb[:, int(x2_syllable[0][0]):int(x2_syllable[-1][1]), :]
-
-        # Define the pooling window sizes
-        x1_window_sizes = [int(seg[1] - seg[0]) for seg in x1_syllable]
-        x2_window_sizes = [int(seg[1] - seg[0]) for seg in x2_syllable]
-
-    
-    # What if paired x2 window_size = 0?
-    except_calculation_x1 = [i for i, value in enumerate(x1_window_sizes) if value == 0]
-    except_calculation_x2 = [i for i, value in enumerate(x2_window_sizes) if value == 0]
-    except_calculation = list(set().union(except_calculation_x1,except_calculation_x2))
-    
-    if len(except_calculation) == len(x1_window_sizes):
-        zeros = torch.zeros(1, 1, 512)
-        return zeros, zeros
-    else:
-        # print(f"x1_window_sizes: {x1_window_sizes}")
-        # print(f"x2_window_sizes: {x2_window_sizes}")
-        # print(f"except_calculation: {except_calculation}")
-        mapped_x1_emb = variant_average_pooling(x1_emb, x1_window_sizes, except_calculation)
-        mapped_x2_emb = variant_average_pooling(x2_emb, x2_window_sizes, except_calculation)
-        if (mapped_x1_emb != None) and (mapped_x2_emb != None):
-            return mapped_x1_emb, mapped_x2_emb
-        else:
-            zeros = torch.zeros(1, 1, 512)
-            return zeros, zeros
         
 # character        
 def window_mapping_and_character(x1_emb, x2_emb, x1_segments, x2_segments):
     """
     inputs: 
-        x1_emb = torch.Size([1,1500,512]) = 30sec
-        x2_emb = torch.Size([1,1500,512])
+        x1_emb = torch.Size([1,1500,emb_dim]) = 30sec
+        x2_emb = torch.Size([1,1500,emb_dim])
     outputs:
-        mapped_x1_emb = torch.Size([1,instance_len,512])
-        mapped_x2_emb = torch.Size([1,instance_len,512])
+        mapped_x1_emb = torch.Size([1,instance_len,emb_dim])
+        mapped_x2_emb = torch.Size([1,instance_len,emb_dim])
     """
-    x1_emb = x1_emb[:, int(x1_segments[1][0]):int(x1_segments[-2][1]), :]
-    x2_emb = x2_emb[:, int(x2_segments[1][0]):int(x2_segments[-2][1]), :]
+    x1_segments = [[int(seg[0]*50), int(seg[1]*50)] for seg in x1_segments]
+    x2_segments = [[int(seg[0]*50), int(seg[1]*50)] for seg in x2_segments]
 
     # Define the pooling window sizes
-    x1_window_sizes = [int(seg[1] - seg[0]) for seg in x1_segments[1:-1]]
-    x2_window_sizes = [int(seg[1] - seg[0]) for seg in x2_segments[1:-1]]
-
+    x1_window_sizes = [int(seg[1] - seg[0]) for seg in x1_segments]
+    x2_window_sizes = [int(seg[1] - seg[0]) for seg in x2_segments]
     
-    # What if paired x2 window_size = 0?
-    except_calculation_x1 = [i for i, value in enumerate(x1_window_sizes) if value == 0]
-    except_calculation_x2 = [i for i, value in enumerate(x2_window_sizes) if value == 0]
-    except_calculation = list(set().union(except_calculation_x1,except_calculation_x2))
+    mapped_x1_emb = variant_average_pooling(x1_emb, x1_window_sizes)
+    mapped_x2_emb = variant_average_pooling(x2_emb, x2_window_sizes)
     
-    if len(except_calculation) == len(x1_window_sizes):
-        zeros = torch.zeros(1, 1, 512)
-        return zeros, zeros
-    else:
-        # print(f"x1_window_sizes: {x1_window_sizes}")
-        # print(f"x2_window_sizes: {x2_window_sizes}")
-        # print(f"except_calculation: {except_calculation}")
-        mapped_x1_emb = variant_average_pooling(x1_emb, x1_window_sizes, except_calculation)
-        mapped_x2_emb = variant_average_pooling(x2_emb, x2_window_sizes, except_calculation)
-        if (mapped_x1_emb != None) and (mapped_x2_emb != None):
-            return mapped_x1_emb, mapped_x2_emb
-        else:
-            zeros = torch.zeros(1, 1, 512)
-            return zeros, zeros
+    return mapped_x1_emb, mapped_x2_emb

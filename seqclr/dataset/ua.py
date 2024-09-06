@@ -3,26 +3,34 @@ import json
 from typing import Any, Dict, List, Optional, Union
 
 class UASpeechDataset(BaseDataset):
-    def __init__(self, mode) -> None:
+    def __init__(self, mode, asr_model) -> None:
         # audio dir:'/home/solee0022/data/' + audio_path
         self.mode = mode
+        self.asr_model = asr_model
         self.path = "seqclr/dataset/UASpeech"
-        self.jsonl_path = f'{self.path}/UASpeech_{self.mode}.jsonl'
+        self.jsonl_path = f'{self.path}/{self.mode}.jsonl'
         self.load_data_from_json()
-
-        BaseDataset.__init__(self, self.mode)
+        
+        ke = open('seqclr/dataset/wordlist.txt', 'r').readlines()
+        di = {}
+        for a in ke:
+            i,s,k = a.strip().split(' ')
+            di[k] = int(i)
+        self.di = di
+        
+        BaseDataset.__init__(self, self.mode, self.asr_model)
         index = 0
 
         for i in self.data:
-            y = i["label"] #label
-            fn = i["audio"] #audio_path
-            txt = i["text"] # text
+            y = self.di[i["word_id"]] #label
+            fn = i["audio_path"] #audio_path
+            txt = i["word"] # text
             segments = i["segments"]
 
             self.ys += [y]
             self.I += [index]
             self.aud_paths.append(fn)
-            self.text.append(txt)
+            self.texts.append(txt)
             self.SEGMENTS.append(segments)
             index += 1
 
