@@ -1,6 +1,4 @@
 out/
 *.pyc
 __pycache__/
-cluster.pub
-cluster
 wandb/

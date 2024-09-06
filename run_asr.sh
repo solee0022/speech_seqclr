@@ -25,13 +25,13 @@ echo "Start"
 echo "conda PATH "
 
 echo "source  $HOME/anaconda3/etc/profile.d/conda.sh"
-source  $HOME/anaconda3/etc/profile.d/conda.sh  #경로
+source  $HOME/anaconda3/etc/profile.d/conda.sh  
 
 echo "conda activate py39_12.1" 
-conda activate py39_12.1  #사용할 conda env
+conda activate py39_12.1  #conda env
 
 # run
-SCRIPT_PATH=$HOME/seqclr_exp/speech_seqclr #run할 파일 path(python)
+SCRIPT_PATH=$HOME/seqclr_exp/speech_seqclr #file path
 OMP_NUM_THREADS=1 torchrun \
     --nproc_per_node=$N_GPU \
     --nnodes=1 \
@@ -44,7 +44,7 @@ date
 
 echo "conda deactivate py39_12.1"
 
-conda deactivate #마무리 deactivate 
+conda deactivate
 
 date
 squeue --job $SLURM_JOBID
