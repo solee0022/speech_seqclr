@@ -1,7 +1,7 @@
 # speech_seqclr
 
 
-### seqclr-encoder fine-tune
+### 1. seqclr-encoder fine-tune
 ```
 >> $ sbatch run_seqclr.sh
 
@@ -18,7 +18,7 @@ $SCRIPT_PATH/run_seqclr.py \
 ```
 
 
-### ASR fine-tune
+### 2. ASR fine-tune
 ```
 >> $ sbatch run_asr.sh
 
@@ -32,4 +32,14 @@ OMP_NUM_THREADS=1 torchrun \
     --rdzv_endpoint localhost:0 \
 $SCRIPT_PATH/run_asr.py \
     --c seqclr/configs/seqclr_model.yaml \
+```
+
+
+### 3. Inference
+run '''python inference.py'''
+```
+def main(
+    method = "seqclr",
+    asr_model = "base",
+    ): 
 ```
