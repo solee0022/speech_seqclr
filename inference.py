@@ -1,24 +1,17 @@
 import torch
 import torch.nn as nn
 import os
-from transformers import AutoProcessor, AutoModelForCTC, AutoTokenizer, AutoFeatureExtractor, AutoModelForSpeechSeq2Seq, Wav2Vec2Processor, Wav2Vec2ForCTC, WhisperProcessor, WhisperForConditionalGeneration
-from torch.utils.data import DataLoader
-import whisper_timestamped as whisper
+from transformers import AutoProcessor,AutoModelForSpeechSeq2Seq, WhisperForConditionalGeneration
 import json
 import torchaudio
 import whisper
-from sklearn.manifold import TSNE
 
 import torch
-import torch.distributed as dist
-import torch.multiprocessing as mp
-import torch.nn as nn
-import torch.optim as optim
-from torch.nn.parallel import DistributedDataParallel as DDP
-
 import editdistance
-from seqclr.modules.normalizers import EnglishTextNormalizer
-
+from whisper_normalizer.english import EnglishTextNormalizer
+import evaluate
+from safetensors import safe_open
+import fire
 
 # Inteligibility
 VL = ["M04", "F03", "M12", "M01"]
@@ -40,7 +33,7 @@ def load_data_from_json(jsonl_path):
     return data
 
 def aud_load(x_path):
-    aud = whisper.load_audio('/home/solee0022/data/' + x_path)
+    aud = whisper.load_audio('/home/solee0022/data/UASpeech/audio/noisereduce/' + x_path)
     aud = whisper.pad_or_trim(aud) # length=self.N_SAMPLES
     mel = whisper.log_mel_spectrogram(aud, n_mels=80) # whisper-base, small, medium=80, large=128
     return mel.unsqueeze(0)
@@ -51,72 +44,67 @@ def emb(x_path, encoder):
     x_emb = encoder(x_mel).last_hidden_state 
     return x_emb # [1, 1500, 512]
 
-jsonl_path = "/home/solee0022/seqclr_exp/speech_seqclr/seqclr/dataset/ua/original/UASpeech_test.jsonl"
-lines = load_data_from_json(jsonl_path)
-
 normalizer = EnglishTextNormalizer()
-def calculate_wer(pre, ref):
-    return editdistance.eval(pre, ref) / len(ref)
+metric = evaluate.load('wer')
 
 # word
-def inference(processor, model, f):
+def inference(processor, model, f, speaker):
+    jsonl_path = f"../dataset/original/test_{speaker}.jsonl"
+    lines = load_data_from_json(jsonl_path)
+    
     for line in lines:
-        speech, sample_rate = torchaudio.load('/home/solee0022/data/'+line['audio'])
-        input_features = processor(input_features, sampling_rate=sample_rate, return_tensors="pt").input_features
+        input_features = aud_load(line['audio_path'])
         with torch.no_grad():
-            predicted_ids = model.generate(input_features.to("cuda"))[0]
+            predicted_ids = model.generate(input_features)[0]
         transcription = processor.decode(predicted_ids)
         prediction = processor.tokenizer._normalize(transcription)
-        prediction = normalizer(prediction)
-        cur_wer = calculate_wer(prediction.split(), line['text'].split())
-        speaker = line['audio'].split("/")[3]
+        prediction = normalizer(prediction).upper()
+        wer_pred = metric.compute([prediction], [line['word']])
 
-        new_line = {'audio': line['audio'], 'wer': cur_wer, 'text': line['text'], 'pred': prediction}            
-        json.dump(new_line, f, ensure_ascii=False)
+        line["pred"] = prediction
+        line["wer_pred"] = wer_pred
+        
+        json.dump(line, f, ensure_ascii=False)
         f.write("\n")
 
     
-def example(rank, world_size): 
-    method = "pretrained"
-    # create default process group
-    dist.init_process_group("gloo", rank=rank, world_size=world_size)
-    # load model
-    processor = AutoProcessor.from_pretrained("openai/whisper-base").to('cpu')  
+def main(
+    method = "seqclr",
+    asr_model = "base",
+    ): 
+    
+    # 1.1. load model
+    model = WhisperForConditionalGeneration.from_pretrained(f"openai/whisper-{asr_model}")
+    processor = AutoProcessor.from_pretrained(f"openai/whisper-{asr_model}")
     if method == "pretrained":  
-        model = AutoModelForSpeechSeq2Seq.from_pretrained("openai/whisper-base").to(rank)
-        f = open('/home/solee0022/seqclr_exp/speech_seqclr/seqclr/dataset/ua/preds_pre/UASpeech_test.jsonl', 'w')
+        model = AutoModelForSpeechSeq2Seq.from_pretrained(f"openai/whisper-{asr_model}")
 
     elif method == 'supervised':
-        model = torch.load('/home/solee0022/seqclr_exp/checkpoints/supervised').to(rank)
-        f = open('/home/solee0022/seqclr_exp/speech_seqclr/seqclr/dataset/ua/preds_sup/UASpeech_test.jsonl', 'w')
-    elif method == 'syll':
-        model = torch.load('/home/solee0022/seqclr_exp/checkpoints/run2-UA-window-syllable').to(rank)
-        f = open('/home/solee0022/seqclr_exp/speech_seqclr/seqclr/dataset/ua/preds_syll/UASpeech_test.jsonl', 'w')
-    elif method == 'char':
-        model = torch.load('/home/solee0022/seqclr_exp/checkpoints/run2-UA-window-character').to(rank)
-        f = open('/home/solee0022/seqclr_exp/speech_seqclr/seqclr/dataset/ua/preds_char/UASpeech_test.jsonl', 'w')
-    elif method == 'dtw':
-        model = torch.load('/home/solee0022/seqclr_exp/checkpoints/run2-UA-window-dtw').to(rank)
-        f = open('/home/solee0022/seqclr_exp/speech_seqclr/seqclr/dataset/ua/preds_dtw/UASpeech_test.jsonl', 'w')
+        model_dict = safe_open('../checkpoints/FINETUNE_{asr_model}/model.safetensors', framework='pt')
+        
+    elif method == 'seqclr':
+        model_dict = safe_open(f'../checkpoints/de_SEQCLR_{asr_model}/model.safetensors', framework='pt')
+        
+    elif method == 'seqclr-hard':
+        model_dict = safe_open('../checkpoints/de_SEQCLR-HARD_{asr_model}/model.safetensors', framework='pt')
+        
+    # 1.2. seq2seq state_dict
+    current_state_dict = model.state_dict()
 
-    print(model)
-    # construct DDP model
-    ddp_model = DDP(model, device_ids=[rank])
-    inference(processor, ddp_model, f)
+    # 1.3. apply loaded state_dict to current_state_dict(correspond to seqclr)
+    for key in model_dict.keys():
+        if key not in current_state_dict.keys():
+            pass
+        else:
+            current_state_dict[key] = model_dict.get_tensor(key)
 
-def main():
-    world_size = 1
-    mp.spawn(example,
-        args=(world_size,),
-        nprocs=world_size,
-        join=True)
-    
-# make embedding
-if __name__=="__main__":
-    # Environment variables which need to be
-    # set when using c10d's default "env"
-    # initialization mode.
-    os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "29500"
-    main()
+    # 1.4. apply to current model
+    model.load_state_dict(current_state_dict)
+        
+    for speaker in ['HEALTHY', 'H', 'M', 'L', 'VL']:
+        f = open(f'../dataset/preds/preds_{method}/test_{speaker}_{asr_model}.jsonl', 'w')
+        inference(processor, model, f, speaker)
 
+main(method = "seqclr",
+    asr_model = "base",
+    )
