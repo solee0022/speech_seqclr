@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import os
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from transformers import WhisperProcessor, WhisperForConditionalGeneration, pipeline
 import json
 import torchaudio
 import whisper
@@ -12,6 +12,7 @@ from num2words import num2words
 from whisper_normalizer.english import EnglishTextNormalizer
 import evaluate
 from safetensors import safe_open
+from peft import PeftModel
 import fire
 
 # Inteligibility
@@ -33,15 +34,9 @@ def load_data_from_json(jsonl_path):
         
     return data
 
-def aud_load(x_path, asr_model):
+def aud_load(x_path):
     aud = whisper.load_audio('/home/solee0022/data/UASpeech/audio/noisereduce/' + x_path)
-    aud = whisper.pad_or_trim(aud) # length=self.N_SAMPLES
-    if 'large' in asr_model:
-        n_mels = 128
-    else:
-        n_mels = 80
-    mel = whisper.log_mel_spectrogram(aud, n_mels=n_mels) # whisper-base, small, medium=80, large=128
-    return mel.unsqueeze(0)
+    return aud
         
 def emb(x_path, encoder):
     # mel-spectrogram
@@ -50,20 +45,18 @@ def emb(x_path, encoder):
     return x_emb # [1, 1500, 512]
 
 normalizer = EnglishTextNormalizer()
-metric = evaluate.load('wer', experiment_id='large-v3')
+metric = evaluate.load('wer', experiment_id='base')
 
 # inference
-def inference(processor, model, asr_model, pred_jsonl_path, speaker):
+def inference(pipe, pred_jsonl_path, speaker):
     jsonl_path = f"../dataset/original/test_{speaker}.jsonl"
     lines = load_data_from_json(jsonl_path)
     
     for line in lines:
-        input_features = aud_load(line['audio_path'], asr_model)
+        sample = aud_load(line['audio_path'])
+        result = pipe(sample)
 
-        with torch.no_grad():
-            predicted_ids = model.generate(input_features)
-        transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
-        prediction = normalizer(transcription)
+        prediction = normalizer(result['text'].strip())
         prediction = re.sub(r"[-+]?\d*\.?\d+|\d+%?", lambda m: num2words(m.group()), prediction).replace("%", " percent").upper()
         print(f"prediction: {prediction}")
         
@@ -78,42 +71,49 @@ def inference(processor, model, asr_model, pred_jsonl_path, speaker):
         pred_f.write("\n")
 
 def main(
-    method = "seqclr",
-    asr_model = "large-v3",
+    method = "supervised",
+    asr_model = "base",
     ): 
     
     # 1.1. load model
     model = WhisperForConditionalGeneration.from_pretrained(f"openai/whisper-{asr_model}")
     processor = WhisperProcessor.from_pretrained(f"openai/whisper-{asr_model}", language="English", task="transcribe")
-    if method == "pretrained":  
-        model = WhisperForConditionalGeneration.from_pretrained(f"openai/whisper-{asr_model}")
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
-    elif method == 'supervised':
-        model_dict = safe_open('../checkpoints/FINETUNE_{asr_model}/model.safetensors', framework='pt')
-        
-    elif method == 'seqclr':
-        model_dict = safe_open(f'../checkpoints/de_SEQCLR_{asr_model}/model.safetensors', framework='pt')
-        
-    elif method == 'seqclr-hard':
-        model_dict = safe_open('../checkpoints/de_SEQCLR-HARD_{asr_model}/model.safetensors', framework='pt')
-        
-    # 1.2. seq2seq state_dict
-    current_state_dict = model.state_dict()
-
-    # 1.3. apply loaded state_dict to current_state_dict(correspond to seqclr)
-    for key in model_dict.keys():
-        if key not in current_state_dict.keys():
-            pass
-        else:
-            current_state_dict[key] = model_dict.get_tensor(key)
-
-    # 1.4. apply to current model
-    model.load_state_dict(current_state_dict)
-        
+    # pretrained, FINETUNE(=supervised), de_SEQCLR(=seqclr), de_SEQCLR-HARD(=seqclr-hard)
+    pretrained_model_id = 'openai/whisper-{asr_model}'
+    ckp_names = {"pretrained": "pretrained", "supervised": "FINETUNE", "seqclr": "de_SEQCLR", "seqclr-hard": "de_SEQCLR-HARD"}
+    if method == "pretrained":
+        model_id = "openai/whisper-{asr_model}"
+    else:
+        model_id = f"../checkpoints/{ckp_names[method]}_{asr_model}" # large-v3|base, openai/whisper-base
+         
+    # load model
+    if ('large-v3' in model_id) and ('checkpoint' in model_id):
+        model = PeftModel.from_pretrained(WhisperForConditionalGeneration.from_pretrained(pretrained_model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True), model_id)
+    else:
+        model = WhisperForConditionalGeneration.from_pretrained(
+            model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True
+        )
+    model.to(device)
+    
+    pipe = pipeline(
+    "automatic-speech-recognition",
+    model=model,
+    tokenizer=processor.tokenizer,
+    feature_extractor=processor.feature_extractor,
+    max_new_tokens=128,
+    chunk_length_s=30,
+    batch_size=1,
+    return_timestamps=True,
+    torch_dtype=torch_dtype,
+    device=device,
+    )
+    
     for speaker in ['HEALTHY', 'H', 'M', 'L', 'VL']:
-        pred_jsonl_path = f'../dataset/preds/preds_{method}/test_{speaker}_{asr_model}.jsonl'
-        inference(processor, model, asr_model, pred_jsonl_path, speaker)
-
+        pred_jsonl_path = f'../dataset/preds/preds_{method}/test_{speaker}_{asr_model}_new.jsonl'
+        inference(pipe, pred_jsonl_path, speaker)
 
 if __name__ == "__main__":
     fire.Fire(main)
