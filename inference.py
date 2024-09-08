@@ -1,13 +1,14 @@
 import torch
 import torch.nn as nn
 import os
-from transformers import AutoProcessor,AutoModelForSpeechSeq2Seq, WhisperForConditionalGeneration
+from transformers import WhisperProcessor, WhisperForConditionalGeneration
 import json
 import torchaudio
 import whisper
 
-import torch
+import re
 import editdistance
+from num2words import num2words
 from whisper_normalizer.english import EnglishTextNormalizer
 import evaluate
 from safetensors import safe_open
@@ -32,10 +33,14 @@ def load_data_from_json(jsonl_path):
         
     return data
 
-def aud_load(x_path):
+def aud_load(x_path, asr_model):
     aud = whisper.load_audio('/home/solee0022/data/UASpeech/audio/noisereduce/' + x_path)
     aud = whisper.pad_or_trim(aud) # length=self.N_SAMPLES
-    mel = whisper.log_mel_spectrogram(aud, n_mels=80) # whisper-base, small, medium=80, large=128
+    if 'large' in asr_model:
+        n_mels = 128
+    else:
+        n_mels = 80
+    mel = whisper.log_mel_spectrogram(aud, n_mels=n_mels) # whisper-base, small, medium=80, large=128
     return mel.unsqueeze(0)
         
 def emb(x_path, encoder):
@@ -45,39 +50,43 @@ def emb(x_path, encoder):
     return x_emb # [1, 1500, 512]
 
 normalizer = EnglishTextNormalizer()
-metric = evaluate.load('wer')
+metric = evaluate.load('wer', experiment_id='large-v3')
 
-# word
-def inference(processor, model, f, speaker):
+# inference
+def inference(processor, model, asr_model, pred_jsonl_path, speaker):
     jsonl_path = f"../dataset/original/test_{speaker}.jsonl"
     lines = load_data_from_json(jsonl_path)
     
     for line in lines:
-        input_features = aud_load(line['audio_path'])
+        input_features = aud_load(line['audio_path'], asr_model)
+
         with torch.no_grad():
-            predicted_ids = model.generate(input_features)[0]
-        transcription = processor.decode(predicted_ids)
-        prediction = processor.tokenizer._normalize(transcription)
-        prediction = normalizer(prediction).upper()
-        wer_pred = metric.compute([prediction], [line['word']])
-
-        line["pred"] = prediction
-        line["wer_pred"] = wer_pred
+            predicted_ids = model.generate(input_features)
+        transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
+        prediction = normalizer(transcription)
+        prediction = re.sub(r"[-+]?\d*\.?\d+|\d+%?", lambda m: num2words(m.group()), prediction).replace("%", " percent").upper()
+        print(f"prediction: {prediction}")
         
-        json.dump(line, f, ensure_ascii=False)
-        f.write("\n")
+        wer_prediction = metric.compute(
+            predictions=[prediction], references=[line['word']]
+        )
+        line["pred"] = prediction
+        line["wer_pred"] = wer_prediction
+        
+        pred_f = open(pred_jsonl_path, 'a')
+        json.dump(line, pred_f, ensure_ascii=False)
+        pred_f.write("\n")
 
-    
 def main(
     method = "seqclr",
-    asr_model = "base",
+    asr_model = "large-v3",
     ): 
     
     # 1.1. load model
     model = WhisperForConditionalGeneration.from_pretrained(f"openai/whisper-{asr_model}")
-    processor = AutoProcessor.from_pretrained(f"openai/whisper-{asr_model}")
+    processor = WhisperProcessor.from_pretrained(f"openai/whisper-{asr_model}", language="English", task="transcribe")
     if method == "pretrained":  
-        model = AutoModelForSpeechSeq2Seq.from_pretrained(f"openai/whisper-{asr_model}")
+        model = WhisperForConditionalGeneration.from_pretrained(f"openai/whisper-{asr_model}")
 
     elif method == 'supervised':
         model_dict = safe_open('../checkpoints/FINETUNE_{asr_model}/model.safetensors', framework='pt')
@@ -102,8 +111,8 @@ def main(
     model.load_state_dict(current_state_dict)
         
     for speaker in ['HEALTHY', 'H', 'M', 'L', 'VL']:
-        f = open(f'../dataset/preds/preds_{method}/test_{speaker}_{asr_model}.jsonl', 'w')
-        inference(processor, model, f, speaker)
+        pred_jsonl_path = f'../dataset/preds/preds_{method}/test_{speaker}_{asr_model}.jsonl'
+        inference(processor, model, asr_model, pred_jsonl_path, speaker)
 
 
 if __name__ == "__main__":
