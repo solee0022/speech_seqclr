@@ -36,7 +36,7 @@ $SCRIPT_PATH/run_asr.py \
 
 
 ### 3. Inference
-run '''python inference.py'''
+run ```python inference.py```
 ```
 def main(
     method = "seqclr",
