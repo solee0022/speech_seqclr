@@ -194,17 +194,14 @@ def main():
     ds_train = UASpeechDataset(config.model_dataset_train_mode, config.model_speech_backbone) # UASpeechDataset("train", cfg) -> cfg.train_roots
     ds_test = UASpeechDataset(config.model_dataset_test_mode, config.model_speech_backbone) 
 
-    # 4. Load Metric
-    loss_f = SeqCLRLoss()
-
-    # 5. Train!
+    # 4. Train!
     logger.info(f"*** Train stage: {config.global_stage} ***")
     trainer = CustomTrainer(
         model=seqclr_model,
         args=training_args,
         train_dataset=ds_train,
         eval_dataset=ds_test,
-        callbacks=[early_stopping_callback],
+        # callbacks=[early_stopping_callback],
     )
 
     checkpoint = None
