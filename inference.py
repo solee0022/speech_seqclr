@@ -1,15 +1,15 @@
 import torch
 import torch.nn as nn
 import os
-from transformers import WhisperProcessor, WhisperForConditionalGeneration, pipeline
+from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor, pipeline
 import json
 import torchaudio
-import whisper
+import soundfile as sf
+import numpy as np
 
 import re
 import editdistance
 from num2words import num2words
-from whisper_normalizer.english import EnglishTextNormalizer
 import evaluate
 from safetensors import safe_open
 from peft import PeftModel
@@ -34,31 +34,32 @@ def load_data_from_json(jsonl_path):
         
     return data
 
-def aud_load(x_path):
-    aud = whisper.load_audio('/home/solee0022/data/UASpeech/audio/noisereduce/' + x_path)
-    return aud
-        
-def emb(x_path, encoder):
-    # mel-spectrogram
-    x_mel = aud_load(x_path)
-    x_emb = encoder(x_mel).last_hidden_state 
-    return x_emb # [1, 1500, 512]
-
-normalizer = EnglishTextNormalizer()
 metric = evaluate.load('wer', experiment_id='base')
 
 # inference
-def inference(pipe, pred_jsonl_path, speaker):
+def inference(model, processor, pred_jsonl_path, speaker):
     jsonl_path = f"../dataset/original/test_{speaker}.jsonl"
     lines = load_data_from_json(jsonl_path)
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
     
     for line in lines:
-        sample = aud_load(line['audio_path'])
-        result = pipe(sample)
+        path = "/home/solee0022/data/UASpeech/audio/noisereduce/"
+        waveform, sample_rate = sf.read(path + line['audio_path'])
+        input_values = processor(waveform, sampling_rate=sample_rate, return_tensors="pt").input_values.to(device)
+        
+        # inference
+        # retrieve logits & take argmax
+        with torch.no_grad():
+            outputs = model(input_values)
+            logits = outputs.logits
+        predicted_ids = torch.argmax(logits, dim=-1)
+        # print(f'outputs: {outputs.hidden_states[-1].size()}')
+        
+        # transcribes
+        transcription = processor.batch_decode(predicted_ids)
 
-        prediction = normalizer(result['text'].strip())
+        prediction = transcription[0].strip()
         prediction = re.sub(r"[-+]?\d*\.?\d+|\d+%?", lambda m: num2words(m.group()), prediction).replace("%", " percent").upper()
-        print(f"prediction: {prediction}")
         
         wer_prediction = metric.compute(
             predictions=[prediction], references=[line['word']]
@@ -70,50 +71,31 @@ def inference(pipe, pred_jsonl_path, speaker):
         json.dump(line, pred_f, ensure_ascii=False)
         pred_f.write("\n")
 
+
 def main(
-    method = "supervised",
+    method = "pretrained",
     asr_model = "base",
     ): 
-    
-    # 1.1. load model
-    model = WhisperForConditionalGeneration.from_pretrained(f"openai/whisper-{asr_model}")
-    processor = WhisperProcessor.from_pretrained(f"openai/whisper-{asr_model}", language="English", task="transcribe")
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-
-    # pretrained, FINETUNE(=supervised), de_SEQCLR(=seqclr), de_SEQCLR-HARD(=seqclr-hard)
-    pretrained_model_id = 'openai/whisper-{asr_model}'
+    # ckp_names
     ckp_names = {"pretrained": "pretrained", "supervised": "FINETUNE", "seqclr": "de_SEQCLR", "seqclr-hard": "de_SEQCLR-HARD"}
     if method == "pretrained":
-        model_id = "openai/whisper-{asr_model}"
+        model_id = f"facebook/wav2vec2-{asr_model}-960h"
     else:
-        model_id = f"../checkpoints/{ckp_names[method]}_{asr_model}" # large-v3|base, openai/whisper-base
+        model_id = f"../checkpoints/{ckp_names[method]}_{asr_model}-960h" # large|base, facebook/wav2vec2-{asr_model}-960h
          
     # load model
-    if ('large-v3' in model_id) and ('checkpoint' in model_id):
-        model = PeftModel.from_pretrained(WhisperForConditionalGeneration.from_pretrained(pretrained_model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True), model_id)
-    else:
-        model = WhisperForConditionalGeneration.from_pretrained(
-            model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True
-        )
-    model.to(device)
+    model = Wav2Vec2ForCTC.from_pretrained(model_id, output_hidden_states=True)
+    processor = Wav2Vec2Processor.from_pretrained(f"facebook/wav2vec2-{asr_model}-960h")
     
-    pipe = pipeline(
-    "automatic-speech-recognition",
-    model=model,
-    tokenizer=processor.tokenizer,
-    feature_extractor=processor.feature_extractor,
-    max_new_tokens=128,
-    chunk_length_s=30,
-    batch_size=1,
-    return_timestamps=True,
-    torch_dtype=torch_dtype,
-    device=device,
-    )
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    torch_dtype = torch.float32 # if torch.cuda.is_available() else torch.float32
+    
+    model.to(device)
+    print(model)
     
     for speaker in ['HEALTHY', 'H', 'M', 'L', 'VL']:
-        pred_jsonl_path = f'../dataset/preds/preds_{method}/test_{speaker}_{asr_model}_new.jsonl'
-        inference(pipe, pred_jsonl_path, speaker)
+        pred_jsonl_path = f'../dataset/preds_w2v/preds_{method}/test_{speaker}_{asr_model}.jsonl'
+        inference(model, processor, pred_jsonl_path, speaker)
 
 if __name__ == "__main__":
     fire.Fire(main)
