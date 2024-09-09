@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # sbatch
-#SBATCH -J seqclr_large-v3 # job name
+#SBATCH -J seqclr_w2v_base # job name
 #SBATCH -o ./out/output_%x.%j.out 
 #SBATCH -q hpgpu
 #SBATCH -p A100-80GB # queue name or partiton name
@@ -11,7 +11,7 @@
 ## gpu 개수
 #SBATCH   --gres=gpu:4
 #SBTACH   --ntasks=1
-#SBATCH   --nodelist=n51
+##SBATCH   --nodelist=n53
 #SBATCH   --tasks-per-node=1
 #SBATCH   --cpus-per-task=16
 

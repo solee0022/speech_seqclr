@@ -15,7 +15,7 @@ from seqclr.modules.dtw import window_mapping_and_character
 from seqclr.modules.custom_trainer import CustomTrainer
 from seqclr.dataset.ua import UASpeechDataset
 
-from transformers import (WhisperConfig, WhisperProcessor, WhisperForConditionalGeneration, EarlyStoppingCallback, set_seed)
+from transformers import (Wav2Vec2ForCTC, Wav2Vec2Processor, EarlyStoppingCallback, set_seed)
 from transformers import (TrainingArguments, Trainer) 
 from transformers.trainer_utils import get_last_checkpoint
 from seqclr.modules.utils import Config
@@ -39,12 +39,12 @@ def main():
     
     # 0. outdir
     try:
-        os.makedirs(config.model_outdir)
+        os.makedirs(config.seqclr_outdir)
     except FileExistsError:
         pass
     
     training_args = TrainingArguments(
-        output_dir=config.model_outdir,
+        output_dir=config.seqclr_outdir,
         num_train_epochs=config.training_epochs,
         per_device_train_batch_size=config.training_train_bs,
         per_device_eval_batch_size=config.training_eval_bs,
@@ -81,10 +81,10 @@ def main():
             )
             
     # 1. Load model
-    processor = WhisperProcessor.from_pretrained(f"openai/whisper-{config.model_speech_backbone}", language="English", task="transcribe")
+    processor = Wav2Vec2Processor.from_pretrained(f"facebook/wav2vec2-{config.seqclr_speech_backbone}-960h")
     seqclr_model = SeqCLRModel(config)
     # lora 
-    if config.model_speech_backbone == 'large-v3':
+    if config.seqclr_speech_backbone == 'large-v3':
         seqclr_model.encoder = prepare_model_for_kbit_training(seqclr_model.encoder)
         lora_config = LoraConfig(r=32, lora_alpha=64, target_modules=["q_proj", "v_proj"], lora_dropout=0.05, bias="none")
 
@@ -98,8 +98,8 @@ def main():
     early_stopping_callback = EarlyStoppingCallback(early_stopping_patience=20)
     
     # 3. Load dataset
-    ds_train = UASpeechDataset(config.model_dataset_train_mode, config.model_speech_backbone) # UASpeechDataset("train", cfg) -> cfg.train_roots
-    ds_test = UASpeechDataset(config.model_dataset_test_mode, config.model_speech_backbone) 
+    ds_train = UASpeechDataset(config.seqclr_dataset_train_mode, config.seqclr_speech_backbone) # UASpeechDataset("train", cfg) -> cfg.train_roots
+    ds_test = UASpeechDataset(config.seqclr_dataset_test_mode, config.seqclr_speech_backbone) 
 
     # 4. Train!
     logger.info(f"*** Train stage: {config.global_stage} ***")

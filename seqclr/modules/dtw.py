@@ -77,13 +77,14 @@ def variant_average_pooling(embeddings, window_sizes):
 def window_mapping_and_character(x1_emb, x2_emb, x1_segments, x2_segments):
     """
     inputs: 
-        x1_emb = torch.Size([1,1500,emb_dim]) = 30sec
-        x2_emb = torch.Size([1,1500,emb_dim])
+        x1_emb = torch.Size([1,seq_len,emb_dim]) = xx sec
+        x2_emb = torch.Size([1,seq_len,emb_dim])
     outputs:
         mapped_x1_emb = torch.Size([1,instance_len,emb_dim])
         mapped_x2_emb = torch.Size([1,instance_len,emb_dim])
     """
-    x1_segments = [[int(seg[0]*50), int(seg[1]*50)] for seg in x1_segments]
+    # 20ms = 1frame
+    x1_segments = [[int(seg[0]*50), int(seg[1]*50)] for seg in x1_segments] 
     x2_segments = [[int(seg[0]*50), int(seg[1]*50)] for seg in x2_segments]
 
     # Define the pooling window sizes

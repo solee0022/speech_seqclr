@@ -1,14 +1,14 @@
 global: 
   name: seqclr
   phase: train
-  stage: en_SEQCLR
+  stage: en_SEQCLR # ['en_SEQCLR', 'en_SEQCLR_HARD', 'FINETUNE', 'de_SEQCLR', 'de_SEQCLR_HARD']
   workdir: workdir
   seed: ~
 
 training:
-  epochs: 100
-  train_bs: 32
-  eval_bs: 8
+  epochs: 20
+  train_bs: 32 # 32
+  eval_bs: 8 # 8
   save_iters: 500
   eval_iters: 500
   logg_iters: 500
@@ -22,14 +22,12 @@ optimizer:
   
 wandb:
   report_to: wandb
-  project_name: seqclr-UA # seqclr, seqclr-UA
-  run_name: de_SEQCLR_large-v3
+  project_name: seqclr # seqclr, seqclr-UA
+  run_name: en_SEQCLR_base
 
-model:
-  name: 'semimtr.modules.model_seqclr_vision.SeqCLRModel'
-  speech_backbone: large-v3 # base, small, medium, large-v3
-  backbone_freeze: False
-  outdir: '../checkpoints/en_SEQCLR_large-v3'
+seqclr:
+  speech_backbone: base # base, small, medium, large
+  outdir: '../checkpoints/en_SEQCLR_base'
   dataset: {
     train_mode: train, 
     test_mode: test,
@@ -44,11 +42,10 @@ model:
     w: 150, # It works when frame_to_instance is False.
   }
 
-decoder:
-  seqclr_ckp: '../checkpoints/en_SEQCLR_large-v3'
-  seqclr_freeze:  True # True|False
-  pretrained_ckp: null
-  outdir: '../checkpoints/de_SEQCLR_large-v3'
+asr:
+  seqclr_ckp: null
+  freeze_feature_encoder: True # True|False
+  outdir: '../checkpoints/FINETUNE_base'
   dataset: 
     type: ua # ua
     mode_ua: {

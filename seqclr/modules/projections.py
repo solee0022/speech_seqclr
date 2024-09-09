@@ -2,14 +2,14 @@ import torch
 import torch.nn as nn
 
 class BidirectionalLSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size): # (1500,512), (512), (1500, 512)
+    def __init__(self, input_size, hidden_size, output_size): # (seq_len,512), (512), (seq_len, 512)
         super().__init__()
         self.rnn = nn.LSTM(input_size, hidden_size, bidirectional=True, batch_first=True)
         self.linear = nn.Linear(hidden_size * 2, output_size)
 
     def forward(self, input):
         """
-        input: visual feature [batch_size x T x input_size] (1, 1500, 512)
+        input: visual feature [batch_size x T x input_size] (1, seq_len, 512)
         output: contextual feature [batch_size x T x output_size]
         """
         self.rnn.flatten_parameters()

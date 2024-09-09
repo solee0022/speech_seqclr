@@ -10,14 +10,16 @@ from typing import Any, Dict, List, Optional, Union
 from seqclr.modules.dtw import window_mapping_and_character
 from seqclr.losses.seqclr_loss import SeqCLRLoss
 from seqclr.dataset.sampler import UniqueClassSampler
+from transformers import Wav2Vec2Processor
 
 from transformers import Trainer
 from torch.utils.data import DataLoader
 
 class CustomTrainer(Trainer):
     def my_collate_fn(self, samples):
-        collate_X = [sample['input_features'] for sample in samples]
-        collate_X = torch.stack(collate_X, dim=0)
+        collate_X = [{"input_values": feature["input_values"]} for feature in samples]
+        processor = Wav2Vec2Processor.from_pretrained(f"facebook/wav2vec2-base-960h")
+        collate_X = processor.feature_extractor.pad(collate_X, return_tensors="pt")
         collate_y = [sample['label'] for sample in samples]
         collate_seg = []
         max_len = max([len(sample['segments']) for sample in samples])
@@ -28,7 +30,7 @@ class CustomTrainer(Trainer):
                 collate_seg.append(np.concatenate((sample['segments'], zero_pad), axis=0))
             else:
                 collate_seg.append(sample['segments'])
-        return {'input_features': collate_X,
+        return {'input_values': collate_X,
                 'label': collate_y,
                 'segments': collate_seg}
         
@@ -72,7 +74,7 @@ class CustomTrainer(Trainer):
         loss_f = SeqCLRLoss().to(device)
         
         # forward pass
-        x = inputs["input_features"]
+        x = inputs["input_values"]
         y = inputs["label"]
         SEGMENTS = inputs["segments"]
         num_samples = 4

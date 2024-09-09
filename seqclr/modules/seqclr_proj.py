@@ -10,38 +10,38 @@ from seqclr.modules.model import Model
 class SeqCLRProj(Model):
     def __init__(self, config):
         super().__init__()
-        self.model_instance_mapping_frame_to_instance = config.model_instance_mapping_frame_to_instance
-        if config.model_speech_backbone == 'large-v3':
-            self.emb_dim = 1280
+        self.model_instance_mapping_frame_to_instance = config.seqclr_instance_mapping_frame_to_instance
+        if config.seqclr_speech_backbone == 'large':
+            self.emb_dim = 1024
         else:
-            self.emb_dim = 512
-        projection_input_size = self.emb_dim # emb_dim of whisper: 512
+            self.emb_dim = 768
+        projection_input_size = self.emb_dim # emb_dim of w2v-base: 768, w2v-large: 1024
         projection_hidden_size = self.emb_dim
         projection_output_size = self.emb_dim
 
         # 3/Projection head
-        if config.model_proj_scheme is None:
+        if config.seqclr_proj_scheme is None:
             self.projection = nn.Identity()
-        elif config.model_proj_scheme == 'bilstm':
+        elif config.seqclr_proj_scheme == 'bilstm':
             self.projection = BidirectionalLSTM(projection_input_size, 
                                                 projection_hidden_size,
                                                 projection_output_size)
-        elif config.model_proj_scheme == 'linear_per_column':
+        elif config.seqclr_proj_scheme == 'linear_per_column':
             self.projection = nn.Linear(projection_input_size, projection_output_size)
-        elif config.model_proj_scheme == 'attn_linear_per_column':
+        elif config.seqclr_proj_scheme == 'attn_linear_per_column':
             self.projection = AttnLinear(projection_input_size,
                                          projection_hidden_size,
                                          projection_output_size)
         else:
-            raise NotImplementedError(f'The projection scheme of {config.model_proj_scheme} is not supported.')
+            raise NotImplementedError(f'The projection scheme of {config.seqclr_proj_scheme} is not supported.')
 
 
         # 4/Instance-mapping
-        if config.model_instance_mapping_frame_to_instance:
+        if config.seqclr_instance_mapping_frame_to_instance:
             self.instance_mapping_func = nn.Identity()
         else:
-            instance_mapping_fixed = if_none(config.model_instance_mapping_fixed, 'instances')
-            w = if_none(config.model_instance_mapping_w, 5)
+            instance_mapping_fixed = if_none(config.seqclr_instance_mapping_fixed, 'instances')
+            w = if_none(config.seqclr_instance_mapping_w, 5)
             if instance_mapping_fixed == 'instances':
                 self.instance_mapping_func = nn.AdaptiveAvgPool2d((w, projection_output_size))
             elif instance_mapping_fixed == 'frames':
@@ -49,9 +49,9 @@ class SeqCLRProj(Model):
             else:
                 raise NotImplementedError(f'instance_mapping_fixed of {instance_mapping_fixed} is not supported')
             
-        if config.model_proj_checkpoint is not None:
-            logging.info(f'Read projection head model from {config.model_proj_checkpoint}.')
-            self.load(config.model_proj_checkpoint)
+        if config.seqclr_proj_checkpoint is not None:
+            logging.info(f'Read projection head model from {config.seqclr_proj_checkpoint}.')
+            self.load(config.seqclr_proj_checkpoint)
 
     def _single_forward(self, output):
         """
