@@ -22,9 +22,7 @@ class SeqCLRModel(Model):
         x: log-mel spectrogram, output of w2v feature-extractor
         """
         # Get output of base encoder as input
-        with torch.no_grad():
-            outputs = self.encoder(x['input_values'])
-        base_emb = outputs.last_hidden_state
+        base_emb = self.encoder(x).last_hidden_state
         projected_instances = torch.tensor(self.seqclr_proj(base_emb))
         #print(f"projected_features.shape: {projected_features['instances'].shape}") 
         return {'instances': projected_instances, #(batch_size, seq_len, emb_size) ex. [1, 292, 768]

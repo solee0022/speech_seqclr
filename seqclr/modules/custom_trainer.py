@@ -15,29 +15,11 @@ from transformers import Wav2Vec2Processor
 from transformers import Trainer
 from torch.utils.data import DataLoader
 
-class CustomTrainer(Trainer):
-    def my_collate_fn(self, samples):
-        collate_X = [{"input_values": feature["input_values"]} for feature in samples]
-        processor = Wav2Vec2Processor.from_pretrained(f"facebook/wav2vec2-base-960h")
-        collate_X = processor.feature_extractor.pad(collate_X, return_tensors="pt")
-        collate_y = [sample['label'] for sample in samples]
-        collate_seg = []
-        max_len = max([len(sample['segments']) for sample in samples])
-        for sample in samples:
-            diff = max_len-len(sample['segments'])
-            if diff > 0:
-                zero_pad = np.array([[0,0] for _ in range(diff)], dtype=np.float16)
-                collate_seg.append(np.concatenate((sample['segments'], zero_pad), axis=0))
-            else:
-                collate_seg.append(sample['segments'])
-        return {'input_values': collate_X,
-                'label': collate_y,
-                'segments': collate_seg}
-        
+class CustomTrainer(Trainer):        
     def get_train_dataloader(self) -> DataLoader:
         train_dataset = self.train_dataset
         labels = train_dataset.ys
-        num_samples=8
+        num_samples=4
         
         train_sampler = UniqueClassSampler(
             labels=labels, m_per_class=num_samples, rank=0, world_size=self.args.world_size
@@ -46,7 +28,7 @@ class CustomTrainer(Trainer):
             train_dataset,
             batch_size=self.args.train_batch_size,
             sampler=train_sampler,
-            collate_fn=self.my_collate_fn,
+            collate_fn=self.data_collator,
             drop_last=self.args.dataloader_drop_last,
             num_workers=self.args.dataloader_num_workers,
             pin_memory=self.args.dataloader_pin_memory,
@@ -54,7 +36,7 @@ class CustomTrainer(Trainer):
 
     def get_eval_dataloader(self, eval_dataset) -> DataLoader:
         labels = eval_dataset.ys
-        num_samples=8
+        num_samples=4
         
         eval_sampler = UniqueClassSampler(
             labels=labels, m_per_class=num_samples, rank=0, world_size=self.args.world_size
@@ -63,7 +45,7 @@ class CustomTrainer(Trainer):
             eval_dataset,
             batch_size=self.args.eval_batch_size,
             sampler=eval_sampler,
-            collate_fn=self.my_collate_fn,
+            collate_fn=self.data_collator,
             drop_last=self.args.dataloader_drop_last,
             num_workers=self.args.dataloader_num_workers,
             pin_memory=self.args.dataloader_pin_memory,
