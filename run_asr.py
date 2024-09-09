@@ -12,8 +12,8 @@ from typing import Any, Dict, List, Optional, Union
 from seqclr.dataset.ua import UASpeechDataset
 from seqclr.modules.model_seqclr import SeqCLRModel
 
-from transformers import (WhisperConfig, WhisperProcessor, WhisperForConditionalGeneration, EarlyStoppingCallback, set_seed)
-from transformers import (Seq2SeqTrainingArguments, Seq2SeqTrainer)
+from transformers import (Wav2Vec2Config, Wav2Vec2ForCTC, Wav2Vec2Processor, EarlyStoppingCallback, set_seed)
+from transformers import (TrainingArguments, Trainer)
 from transformers.trainer_utils import get_last_checkpoint
 from seqclr.modules.utils import Config
 import evaluate
@@ -29,44 +29,64 @@ parser.add_argument('-c', '--config', type=str, default="seqclr/configs/seqclr_m
                     required=True, help='path to config file')
 
 @dataclass
-class DataCollatorSpeechSeq2SeqWithPadding:
+class DataCollatorCTCWithPadding:
     """
     Data collator that will dynamically pad the inputs received.
     Args:
-        processor ([`WhisperProcessor`])
-            The processor used for processing the data.
-        decoder_start_token_id (`int`)
-            The begin-of-sentence of the decoder.
+        processor (:class:`~transformers.AutoProcessor`)
+            The processor used for proccessing the data.
+        padding (:obj:`bool`, :obj:`str` or :class:`~transformers.tokenization_utils_base.PaddingStrategy`, `optional`, defaults to :obj:`True`):
+            Select a strategy to pad the returned sequences (according to the model's padding side and padding index)
+            among:
+            * :obj:`True` or :obj:`'longest'`: Pad to the longest sequence in the batch (or no padding if only a single
+              sequence if provided).
+            * :obj:`'max_length'`: Pad to a maximum length specified with the argument :obj:`max_length` or to the
+              maximum acceptable input length for the model if that argument is not provided.
+            * :obj:`False` or :obj:`'do_not_pad'` (default): No padding (i.e., can output a batch with sequences of
+              different lengths).
+        max_length (:obj:`int`, `optional`):
+            Maximum length of the ``input_values`` of the returned list and optionally padding length (see above).
+        max_length_labels (:obj:`int`, `optional`):
+            Maximum length of the ``labels`` returned list and optionally padding length (see above).
+        pad_to_multiple_of (:obj:`int`, `optional`):
+            If set will pad the sequence to a multiple of the provided value.
+            This is especially useful to enable the use of Tensor Cores on NVIDIA hardware with compute capability >=
+            7.5 (Volta).
     """
 
-    processor: Any
-    decoder_start_token_id: int
-    
+    processor: Wav2Vec2Processor
+    padding: Union[bool, str] = "longest"
+    pad_to_multiple_of: Optional[int] = None
+    pad_to_multiple_of_labels: Optional[int] = None
 
     def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
         # split inputs and labels since they have to be of different lengths and need
-        # different padding methodss
+        # different padding methods
+        input_features = [{"input_values": feature["input_values"]} for feature in features]
+        label_features = [{"input_ids": feature["input_ids"]} for feature in features]
 
-        # feature['input_features']: mel, feature['label']: label, feature['text']: text
-        input_features = [{"input_features": feature["input_features"]} for feature in features]
-        label_features = [{"input_ids": feature["text"]} for feature in features]
+        batch = self.processor.pad(
+            input_features,
+            padding=self.padding,
+            pad_to_multiple_of=self.pad_to_multiple_of,
+            return_tensors="pt",
+        )
 
-        batch = self.processor.feature_extractor.pad(input_features, return_tensors="pt")
-        labels_batch = self.processor.tokenizer.pad(label_features, return_tensors="pt")
+        labels_batch = self.processor.pad(
+            labels=label_features,
+            padding=self.padding,
+            pad_to_multiple_of=self.pad_to_multiple_of_labels,
+            return_tensors="pt",
+        )
 
         # replace padding with -100 to ignore loss correctly
         labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
-        
-        # replace -100 with the pad_token_id
-        labels[labels == -100] = self.processor.tokenizer.pad_token_id
 
-        # if bos token is appended in previous tokenization step,
-        # cut bos token here as it's append later anyways
-        if (labels[:, 0] == self.decoder_start_token_id).all().cpu().item():
-            labels = labels[:, 1:]
         batch["labels"] = labels
-        
-        return batch # input_features, labels
+        if "attention_mask" in batch:
+            batch["attention_mask"] = batch["attention_mask"].to(torch.long)
+
+        return batch
 
 
 def main():
@@ -77,12 +97,12 @@ def main():
     
     # 0. outdir
     try:
-        os.makedirs(config.decoder_outdir)
+        os.makedirs(config.asr_outdir)
     except FileExistsError:
         pass
     
-    training_args = Seq2SeqTrainingArguments(
-        output_dir=config.decoder_outdir,
+    training_args = TrainingArguments(
+        output_dir=config.asr_outdir,
         num_train_epochs=config.training_epochs,
         per_device_train_batch_size=config.training_train_bs,
         per_device_eval_batch_size=config.training_eval_bs,
@@ -96,9 +116,6 @@ def main():
         #lr_scheduler_type=config.optimizer_lr_scheduler_type,
         warmup_steps=config.training_warmup_steps, 
         remove_unused_columns=False,
-        predict_with_generate=True,
-        # generation_max_length=200,
-        # generation_num_beams=5,
         data_seed=1234,
         do_train=True,
         metric_for_best_model="eval_wer", 
@@ -108,18 +125,17 @@ def main():
     )
 
     # 1.1. Load model
-    processor = WhisperProcessor.from_pretrained(f"openai/whisper-{config.model_speech_backbone}", language="English", task="transcribe")
+    processor = Wav2Vec2Processor.from_pretrained(f"facebook/wav2vec2-{config.seqclr_speech_backbone}-960h")
     tokenizer = processor.tokenizer
-    base_config = WhisperConfig.from_pretrained(f"openai/whisper-{config.model_speech_backbone}")
-    model = WhisperForConditionalGeneration.from_pretrained(f"openai/whisper-{config.model_speech_backbone}")
+    model = Wav2Vec2ForCTC.from_pretrained(f"facebook/wav2vec2-{config.seqclr_speech_backbone}-960h")
     
-    if not config.decoder_seqclr_ckp:
+    if not config.asr_seqclr_ckp:
         logger.info("*** Use Non-Contrastive Encoder ***")
         pass
     else:
         logger.info("*** Use Contrastive Encoder ***")
         # 1.2. load state_dict of seqclr(encoder)
-        seqclr_state_dict = safe_open(f'{config.decoder_seqclr_ckp}/model.safetensors', framework='pt')  #['model_state_dict']
+        seqclr_state_dict = safe_open(f'{config.asr_seqclr_ckp}/model.safetensors', framework='pt')  #['model_state_dict']
 
         # 1.3. seq2seq state_dict
         current_state_dict = model.state_dict()
@@ -135,11 +151,11 @@ def main():
         model.load_state_dict(current_state_dict)
     
     # 1.6. freeze model
-    if config.decoder_seqclr_freeze:
-        model.freeze_encoder()
-        model.model.encoder.gradient_checkpointing = False
+    # freeze encoder
+    if config.asr_freeze_feature_encoder:
+        model.freeze_feature_encoder()
 
-    if config.model_speech_backbone == 'large-v3':
+    if config.seqclr_speech_backbone == 'large-v3':
         model = prepare_model_for_kbit_training(model)
         lora_config = LoraConfig(r=32, lora_alpha=64, target_modules=["q_proj", "v_proj"], lora_dropout=0.05, bias="none")
 
@@ -168,24 +184,21 @@ def main():
     early_stopping_callback = EarlyStoppingCallback(early_stopping_patience=5)
     
     # 3. Load dataset
-    data_collator = DataCollatorSpeechSeq2SeqWithPadding(
-        processor=processor,
-        decoder_start_token_id=base_config.decoder_start_token_id,
-    )
+    data_collator = DataCollatorCTCWithPadding(processor=processor)
 
-    if config.decoder_dataset_type == 'ua':
+    if config.asr_dataset_type == 'ua':
         # trainset
-        ds_train = UASpeechDataset(config.decoder_dataset_mode_ua_train_mode[0], config.model_speech_backbone)
+        ds_train = UASpeechDataset(config.asr_dataset_mode_ua_train_mode[0], config.seqclr_speech_backbone)
         # evalset
         # run separate evaluations on each dataset
-        if len(config.decoder_dataset_mode_ua_test_mode)>1:
+        if len(config.asr_dataset_mode_ua_test_mode)>1:
             ds_eval = {}
-            for eval_mode in config.decoder_dataset_mode_ua_test_mode:
+            for eval_mode in config.asr_dataset_mode_ua_test_mode:
                 key = eval_mode
-                value = UASpeechDataset(eval_mode, config.model_speech_backbone)
+                value = UASpeechDataset(eval_mode, config.seqclr_speech_backbone)
                 ds_eval[key] = value
         else:
-            ds_eval = UASpeechDataset(config.decoder_dataset_mode_ua_test_mode[0], config.model_speech_backbone)
+            ds_eval = UASpeechDataset(config.asr_dataset_mode_ua_test_mode[0], config.seqclr_speech_backbone)
 
 
     # 4. Load Metric
@@ -207,7 +220,7 @@ def main():
 
     # 5. Train!
     logger.info(f"*** Train stage: {config.global_stage} ***")
-    trainer = Seq2SeqTrainer(
+    trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=ds_train,
