@@ -42,6 +42,7 @@ def inference(model, processor, pred_jsonl_path, speaker):
     lines = load_data_from_json(jsonl_path)
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     
+    total_wer = 0
     for line in lines:
         path = "/home/solee0022/data/UASpeech/audio/noisereduce/"
         waveform, sample_rate = sf.read(path + line['audio_path'])
@@ -60,6 +61,7 @@ def inference(model, processor, pred_jsonl_path, speaker):
 
         prediction = transcription[0].strip()
         prediction = re.sub(r"[-+]?\d*\.?\d+|\d+%?", lambda m: num2words(m.group()), prediction).replace("%", " percent").upper()
+        print(f'prediction: {prediction}')
         
         wer_prediction = metric.compute(
             predictions=[prediction], references=[line['word']]
@@ -67,9 +69,14 @@ def inference(model, processor, pred_jsonl_path, speaker):
         line["pred"] = prediction
         line["wer_pred"] = wer_prediction
         
+        total_wer+=wer_prediction
         pred_f = open(pred_jsonl_path, 'a')
         json.dump(line, pred_f, ensure_ascii=False)
         pred_f.write("\n")
+        
+    total_wer/=len(lines)
+    print(f"{speaker}_wer: {total_wer}")
+    print("\n\n=====================================================\n\n")
 
 
 def main(
