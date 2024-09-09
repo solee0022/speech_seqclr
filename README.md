@@ -25,72 +25,72 @@
 <tbody>
   <tr>
     <td class="tg-9wq8" rowspan="5">w2v-base-960h</td>
-    <td class="tg-c3ow">VL</td>
-    <td class="tg-c3ow">1.6549</td>
+    <td class="tg-9wq8">VL</td>
+    <td class="tg-9wq8">1.6549</td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
   </tr>
   <tr>
-    <td class="tg-c3ow">L</td>
-    <td class="tg-c3ow">1.5241</td>
+    <td class="tg-9wq8">L</td>
+    <td class="tg-9wq8">1.5241</td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
   </tr>
   <tr>
-    <td class="tg-c3ow">M</td>
-    <td class="tg-c3ow">1.2693</td>
+    <td class="tg-9wq8">M</td>
+    <td class="tg-9wq8">1.2693</td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
   </tr>
   <tr>
-    <td class="tg-c3ow">H</td>
-    <td class="tg-c3ow">0.6564</td>
+    <td class="tg-9wq8">H</td>
+    <td class="tg-9wq8">0.6564</td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
   </tr>
   <tr>
-    <td class="tg-c3ow">HEALTHY</td>
-    <td class="tg-c3ow">0.4563</td>
+    <td class="tg-9wq8">HEALTHY</td>
+    <td class="tg-9wq8">0.4563</td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
   </tr>
   <tr>
     <td class="tg-9wq8" rowspan="5">w2v-large-960h<br></td>
-    <td class="tg-c3ow">VL</td>
-    <td class="tg-c3ow">1.8294</td>
+    <td class="tg-9wq8">VL</td>
+    <td class="tg-9wq8">1.8294</td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
   </tr>
   <tr>
-    <td class="tg-c3ow">L</td>
-    <td class="tg-c3ow">1.5267</td>
+    <td class="tg-9wq8">L</td>
+    <td class="tg-9wq8">1.5267</td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
   </tr>
   <tr>
-    <td class="tg-c3ow">M</td>
-    <td class="tg-c3ow">1.3022</td>
+    <td class="tg-9wq8">M</td>
+    <td class="tg-9wq8">1.3022</td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
   </tr>
   <tr>
-    <td class="tg-c3ow">H</td>
-    <td class="tg-c3ow">0.6007</td>
+    <td class="tg-9wq8">H</td>
+    <td class="tg-9wq8">0.6007</td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
   </tr>
   <tr>
-    <td class="tg-c3ow">HEALTHY</td>
-    <td class="tg-c3ow">0.3664</td>
+    <td class="tg-9wq8">HEALTHY</td>
+    <td class="tg-9wq8">0.3664</td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
     <td class="tg-c3ow"></td>
