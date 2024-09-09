@@ -32,7 +32,7 @@ class BaseDataset(torch.utils.data.Dataset):
         input_values = self.processor(waveform, sampling_rate=sample_rate, return_tensors="pt").input_values[0]
         label = self.ys[index]
 
-        input_ids = self.processor.tokenizer(self.texts[index], truncation=True).input_ids
+        input_ids = self.processor.tokenizer(self.texts[index]).input_ids
             
         sample = {"input_values": input_values, "label": label, 'segments': np.array(self.SEGMENTS[index], dtype=np.float16), 'input_ids': input_ids}
         return sample

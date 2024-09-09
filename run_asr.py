@@ -204,12 +204,15 @@ def main():
     # 4. Load Metric
     metric = evaluate.load("wer", experiment_id='loss') 
     
+    def preprocess_logits_for_metrics(logits, labels):
+        pred_ids = torch.argmax(logits, dim=-1)
+        return pred_ids, labels
+    
     def compute_metrics(pred):
-        pred_ids = pred.predictions
-
+        pred_ids = pred.predictions[0]
         pred.label_ids[pred.label_ids == -100] = tokenizer.pad_token_id
 
-        pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
+        pred_str = tokenizer.batch_decode(pred_ids)
         # we do not want to group tokens when computing the metrics
         label_str = tokenizer.batch_decode(pred.label_ids, skip_special_tokens=True)
 
@@ -227,6 +230,8 @@ def main():
         eval_dataset=ds_eval,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
+        tokenizer=processor,
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics,
         callbacks=[early_stopping_callback],
     )
 
