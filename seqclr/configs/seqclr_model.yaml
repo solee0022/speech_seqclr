@@ -1,18 +1,18 @@
 global: 
   name: seqclr
   phase: train
-  stage: en_SEQCLR # ['en_SEQCLR', 'en_SEQCLR_HARD', 'FINETUNE', 'de_SEQCLR', 'de_SEQCLR_HARD']
+  stage: FINETUNE # ['en_SEQCLR', 'en_SEQCLR_HARD', 'FINETUNE', 'de_SEQCLR', 'de_SEQCLR_HARD']
   workdir: workdir
   seed: ~
 
 training:
   epochs: 20
-  train_bs: 32 # 32
-  eval_bs: 8 # 8
-  save_iters: 500
-  eval_iters: 500
-  logg_iters: 500
-  warmup_steps: 10
+  train_bs: 8 # 32
+  eval_bs: 2 # 8
+  save_iters: 1000
+  eval_iters: 1000
+  logg_iters: 1000
+  warmup_steps: 1000
   save_total_limit: 3
 
 optimizer:
@@ -22,12 +22,12 @@ optimizer:
   
 wandb:
   report_to: wandb
-  project_name: seqclr # seqclr, seqclr-UA
-  run_name: en_SEQCLR_base
+  project_name: seqclr-UA # seqclr, seqclr-UA
+  run_name: FINETUNE_large-960h-lv60
 
 seqclr:
-  speech_backbone: base # base, small, medium, large
-  outdir: '../checkpoints/en_SEQCLR_base'
+  speech_backbone: large-960h-lv60 # base, small, medium, large
+  outdir: '../checkpoints/FINETUNE_large-960h-lv60'
   dataset: {
     train_mode: train, 
     test_mode: test,
@@ -45,7 +45,7 @@ seqclr:
 asr:
   seqclr_ckp: null
   freeze_feature_encoder: True # True|False
-  outdir: '../checkpoints/FINETUNE_base'
+  outdir: '../checkpoints/FINETUNE_large-960h-lv60_fz'
   dataset: 
     type: ua # ua
     mode_ua: {
